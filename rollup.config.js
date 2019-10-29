@@ -22,6 +22,7 @@ fs.readdirSync(packagesDir).forEach(dir => {
   if (dir === 'vue') {
     return
   }
+  //判断是否是文件目录
   if (fs.statSync(path.resolve(packagesDir, dir)).isDirectory()) {
     aliasOptions[`@vue/${dir}`] = path.resolve(packagesDir, `${dir}/src/index`)
   }

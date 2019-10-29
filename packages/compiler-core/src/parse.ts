@@ -44,7 +44,7 @@ export interface ParserOptions {
 export const defaultParserOptions: Required<ParserOptions> = {
   delimiters: [`{{`, `}}`],
   ignoreSpaces: true,
-  getNamespace: () => Namespaces.HTML,
+  getNamespace: () => Namespaces.HTML, //我理解这些值是ts中的枚举
   getTextMode: () => TextModes.DATA,
   isVoidTag: () => false,
   namedCharacterReferences: {
@@ -75,13 +75,19 @@ interface ParserContext {
   column: number
   maxCRNameLength: number
 }
-
+//解析内容为字符串与options对象
 export function parse(content: string, options: ParserOptions = {}): RootNode {
-  const context = createParserContext(content, options)
-  const start = getCursor(context)
+  //返回一个新对象，将content字符串，赋值为对象的元素：originalSource、source
+  //新对象包含一些索引属性,以及defaultParserOptions对象与options对象合并为options
 
+  const context = createParserContext(content, options)
+
+  //返回一个索引索引用途的对象，包括三个属性 column、line、offset。
+
+  const start = getCursor(context)
+  //返回值为根节点RootNode
   return {
-    type: NodeTypes.ROOT,
+    type: NodeTypes.ROOT, // 60行出（定义） ，ts中的枚举，值 1
     children: parseChildren(context, TextModes.DATA, []),
     helpers: [],
     components: [],
@@ -101,11 +107,12 @@ function createParserContext(
       ...defaultParserOptions,
       ...options
     },
-    column: 1,
-    line: 1,
-    offset: 0,
-    originalSource: content,
+    column: 1, //列
+    line: 1, //行
+    offset: 0, //字符串的位置
+    originalSource: content, //存储最初始的字符串
     source: content,
+    //找出转义字符中最大的
     maxCRNameLength: Object.keys(
       options.namedCharacterReferences ||
         defaultParserOptions.namedCharacterReferences
@@ -118,23 +125,35 @@ function parseChildren(
   mode: TextModes,
   ancestors: ElementNode[]
 ): TemplateChildNode[] {
+  //last()取数组的最后一项,无则undefine
   const parent = last(ancestors)
+  //姑且理解为html的命名空间
   const ns = parent ? parent.ns : Namespaces.HTML
+  //nodes 初始为[]
   const nodes: TemplateChildNode[] = []
-
+  //初始化阶段，isEnd返值为false
   while (!isEnd(context, mode, ancestors)) {
+    //字符串为空时，报错
     __DEV__ && assert(context.source.length > 0)
+
     const s = context.source
     let node: TemplateChildNode | TemplateChildNode[] | undefined = undefined
 
+    // context.options.delimiters[0]  delimiters: [`{{`, `}}`],
+    //10.28未读到
     if (startsWith(s, context.options.delimiters[0])) {
-      // '{{'
+      // 取{{}}中的值的时候要走这里
       node = parseInterpolation(context, mode)
-    } else if (mode === TextModes.DATA && s[0] === '<') {
+      //mode 初值1
+    }
+    //初始化是直接进入else分支
+    else if (mode === TextModes.DATA && s[0] === '<') {
       // https://html.spec.whatwg.org/multipage/parsing.html#tag-open-state
       if (s.length === 1) {
         emitError(context, ErrorCodes.EOF_BEFORE_TAG_NAME, 1)
-      } else if (s[1] === '!') {
+      }
+      //声明注释的那堆东西，后面在读
+      else if (s[1] === '!') {
         // https://html.spec.whatwg.org/multipage/parsing.html#markup-declaration-open-state
         if (startsWith(s, '<!--')) {
           node = parseComment(context)
@@ -168,7 +187,10 @@ function parseChildren(
           emitError(context, ErrorCodes.INVALID_FIRST_CHARACTER_OF_TAG_NAME, 2)
           node = parseBogusComment(context)
         }
-      } else if (/[a-z]/i.test(s[1])) {
+      }
+      //进入正常的标签，如<div>
+      else if (/[a-z]/i.test(s[1])) {
+        //正常的标签如<div>
         node = parseElement(context, ancestors)
       } else if (s[1] === '?') {
         emitError(
@@ -325,7 +347,9 @@ function parseElement(
   __DEV__ && assert(/^<[a-z]/i.test(context.source))
 
   // Start tag.
+  //初始化是，ancestors为空数组
   const parent = last(ancestors)
+  //TagType为ts枚举，值为0
   const element = parseTag(context, TagType.Start, parent)
 
   if (element.isSelfClosing || context.options.isVoidTag(element.tag)) {
@@ -380,21 +404,27 @@ function parseTag(
     )
 
   // Tag open.
+  //返回对象，为行列偏移。
   const start = getCursor(context)
+  // \/转义为可选  ([a-z][^\t\r\n\f />]*)捕获内容，数组的第二项。如<div> 那么tag的值为"div"
   const match = /^<\/?([a-z][^\t\r\n\f />]*)/i.exec(context.source)!
   const tag = match[1]
   const props = []
+  //命名空间么，目前还不理解。
   const ns = context.options.getNamespace(tag, parent)
-
+  //用以选出标签类型，主要有 slot template component
   let tagType = ElementTypes.ELEMENT
+  //slot标签单独处理。
   if (tag === 'slot') tagType = ElementTypes.SLOT
   else if (tag === 'template') tagType = ElementTypes.TEMPLATE
   else if (/[A-Z-]/.test(tag)) tagType = ElementTypes.COMPONENT
-
+  //match[0]为一行中的空格之前的字符串，advanceBy取match[0]之后的字符串。
   advanceBy(context, match[0].length)
+
   advanceSpaces(context)
 
   // Attributes.
+  //Set 去重
   const attributeNames = new Set<string>()
   while (
     context.source.length > 0 &&
@@ -488,7 +518,7 @@ function parseAttribute(
         loc: SourceLocation
       }
     | undefined = undefined
-
+  //找出等号
   if (/^[\t\r\n\f ]*=/.test(context.source)) {
     advanceSpaces(context)
     advanceBy(context, 1)
@@ -703,7 +733,7 @@ function parseText(context: ParserContext, mode: TextModes): TextNode {
  */
 function parseTextData(
   context: ParserContext,
-  length: number,
+  length: number, //length指的是第二引号的值的索引
   mode: TextModes
 ): string {
   if (mode === TextModes.RAWTEXT || mode === TextModes.CDATA) {
@@ -715,12 +745,15 @@ function parseTextData(
   // DATA or RCDATA. Entity decoding required.
   const end = context.offset + length
   let text: string = ''
-
+  //length的值为,如 class ="llll",中第二个引号的位置。
   while (context.offset < end) {
+    //本质上匹配& ，(?:#x?)为可选项。
     const head = /&(?:#x?)?/i.exec(context.source)
+    //取到双引号之间的值
     if (!head || context.offset + head.index >= end) {
       const remaining = end - context.offset
       text += context.source.slice(0, remaining)
+      //更新坐标
       advanceBy(context, remaining)
       break
     }
@@ -856,7 +889,7 @@ function advanceBy(context: ParserContext, numberOfCharacters: number): void {
   advancePositionWithMutation(context, source, numberOfCharacters)
   context.source = source.slice(numberOfCharacters)
 }
-
+//找空格
 function advanceSpaces(context: ParserContext): void {
   const match = /^[\t\r\n\f ]+/.exec(context.source)
   if (match) {
@@ -897,13 +930,15 @@ function emitError(
 
 function isEnd(
   context: ParserContext,
-  mode: TextModes,
+  mode: TextModes, //初始时传入的值为1
   ancestors: ElementNode[]
 ): boolean {
+  //初始传入的字符串
   const s = context.source
-
+  //mode值为1
   switch (mode) {
     case TextModes.DATA:
+      // startsWith()判断字符串是否以字符串开头，可以选position。
       if (startsWith(s, '</')) {
         //TODO: probably bad performance
         for (let i = ancestors.length - 1; i >= 0; --i) {
@@ -929,11 +964,12 @@ function isEnd(
       }
       break
   }
-
+  //初始化时，返回false
   return !s
 }
 
 function startsWithEndTagOpen(source: string, tag: string): boolean {
+  // \n:换行符、\t制表符、\f换页符
   return (
     startsWith(source, '</') &&
     source.substr(2, tag.length).toLowerCase() === tag.toLowerCase() &&

@@ -110,9 +110,11 @@ export function advancePositionWithMutation(
       lastNewLinePos = i
     }
   }
-
+  // pos.offset字符串移动了多少
   pos.offset += numberOfCharacters
+  //记录字符串到了第几行
   pos.line += linesCount
+  //如果有没有换行符，列（column）的值pos.offset相等，有换行符(\n)值为numberOfCharacters - lastNewLinePos
   pos.column =
     lastNewLinePos === -1
       ? pos.column + numberOfCharacters

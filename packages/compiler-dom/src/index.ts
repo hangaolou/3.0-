@@ -9,6 +9,7 @@ export function compile(
 ): CodegenResult {
   return baseCompile(template, {
     ...options,
+    //大意与浏览器有关的配置
     ...(__BROWSER__ ? parserOptionsMinimal : parserOptionsStandard),
     nodeTransforms: [transformStyle, ...(options.nodeTransforms || [])],
     directiveTransforms: {

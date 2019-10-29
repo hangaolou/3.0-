@@ -1,5 +1,5 @@
 const fs = require('fs')
-
+//找出packages目录下的子目录
 const targets = (exports.targets = fs.readdirSync('packages').filter(f => {
   if (!fs.statSync(`packages/${f}`).isDirectory()) {
     return false
