@@ -94,6 +94,7 @@ export function parse(content: string, options: ParserOptions = {}): RootNode {
     directives: [],
     hoists: [],
     codegenNode: undefined,
+    //解析的字符串
     loc: getSelection(context, start)
   }
 }
@@ -122,7 +123,7 @@ function createParserContext(
 
 function parseChildren(
   context: ParserContext,
-  mode: TextModes,
+  mode: TextModes, //0
   ancestors: ElementNode[]
 ): TemplateChildNode[] {
   //last()取数组的最后一项,无则undefine
@@ -347,11 +348,11 @@ function parseElement(
   __DEV__ && assert(/^<[a-z]/i.test(context.source))
 
   // Start tag.
-  //初始化是，ancestors为空数组
+  //初始化是，ancestors为空数组,应该为undifine
   const parent = last(ancestors)
   //TagType为ts枚举，值为0
   const element = parseTag(context, TagType.Start, parent)
-
+  //用以判断字符串是否结束例如<div>没有结束。
   if (element.isSelfClosing || context.options.isVoidTag(element.tag)) {
     return element
   }
@@ -362,6 +363,7 @@ function parseElement(
     element.tag,
     element.ns
   ) as unknown) as TextModes
+  //递归在这里
   const children = parseChildren(context, mode, ancestors)
   ancestors.pop()
 
@@ -404,12 +406,12 @@ function parseTag(
     )
 
   // Tag open.
-  //返回对象，为行列偏移。
+  //返回对象，为行列偏移。 column: 1, line: 1,offset: 0,
   const start = getCursor(context)
   // \/转义为可选  ([a-z][^\t\r\n\f />]*)捕获内容，数组的第二项。如<div> 那么tag的值为"div"
   const match = /^<\/?([a-z][^\t\r\n\f />]*)/i.exec(context.source)!
   const tag = match[1]
-  const props = []
+  const props = [] //用来存放特性对象。
   //命名空间么，目前还不理解。
   const ns = context.options.getNamespace(tag, parent)
   //用以选出标签类型，主要有 slot template component
@@ -418,7 +420,7 @@ function parseTag(
   if (tag === 'slot') tagType = ElementTypes.SLOT
   else if (tag === 'template') tagType = ElementTypes.TEMPLATE
   else if (/[A-Z-]/.test(tag)) tagType = ElementTypes.COMPONENT
-  //match[0]为一行中的空格之前的字符串，advanceBy取match[0]之后的字符串。
+  //字符串剪切标签，如<div
   advanceBy(context, match[0].length)
 
   advanceSpaces(context)
@@ -426,6 +428,7 @@ function parseTag(
   // Attributes.
   //Set 去重
   const attributeNames = new Set<string>()
+  //处理标签中的特性。
   while (
     context.source.length > 0 &&
     !startsWith(context.source, '>') &&
@@ -484,18 +487,23 @@ function parseAttribute(
   __DEV__ && assert(/^[^\t\r\n\f />]/.test(context.source))
 
   // Name.
+  //1,获取字符串的坐标
   const start = getCursor(context)
+  //从头匹配,第一个匹配项为非空格或特殊字符（可以为＝），第二匹配连续字符不可以为等号。 match为数组！
   const match = /^[^\t\r\n\f />][^\t\r\n\f />=]*/.exec(context.source)!
+  //name的值假设为'@classs'
   const name = match[0]
-
+  //nameSet为Set实例。
   if (nameSet.has(name)) {
     emitError(context, ErrorCodes.DUPLICATE_ATTRIBUTE)
   }
+  //nameSet中添加name
   nameSet.add(name)
-
+  //name 的第一个字符串值为'='，则报错。
   if (name[0] === '=') {
     emitError(context, ErrorCodes.UNEXPECTED_EQUALS_SIGN_BEFORE_ATTRIBUTE_NAME)
   }
+  //用以检测name字符串中是否含有"'<，若有报错。
   {
     const pattern = /["'<]/g
     let m: RegExpExecArray | null
@@ -507,10 +515,11 @@ function parseAttribute(
       )
     }
   }
-
+  //更新context中的坐标，source中剪去name的值。
   advanceBy(context, name.length)
 
   // Value
+  //定义value值，对象或undefined。
   let value:
     | {
         content: string
@@ -518,19 +527,25 @@ function parseAttribute(
         loc: SourceLocation
       }
     | undefined = undefined
-  //找出等号
+  //这时context.source的值已剪切。
+  //匹配，=之前可以有一个或多个空格或其他特殊字符。
   if (/^[\t\r\n\f ]*=/.test(context.source)) {
+    //context.source剪切空格，更新坐标
     advanceSpaces(context)
+    //context.source剪切等号，更新坐标。
     advanceBy(context, 1)
     advanceSpaces(context)
+    //转入的值以"开头。
     value = parseAttributeValue(context)
     if (!value) {
       emitError(context, ErrorCodes.MISSING_ATTRIBUTE_VALUE)
     }
   }
+  //返回的值包括name与value
   const loc = getSelection(context, start)
-
+  // | 类似于或的概念
   if (/^(v-|:|@|#)/.test(name)) {
+    // v-***(0-1), ((:|@ |#) ...)(0-1) ,  ...$  不是点的其它字符[^\.]
     const match = /(?:^v-([a-z0-9-]+))?(?:(?::|^@|^#)([^\.]+))?(.+)?$/i.exec(
       name
     )!
@@ -538,12 +553,19 @@ function parseAttribute(
     let arg: ExpressionNode | undefined
 
     if (match[2]) {
+      //@或#之前的字符串长度（包括）
+      //尽量进入具体场景
       const startOffset = name.split(match[2], 2)!.shift()!.length
+
+      //返回对象，包含开始坐标，结束坐标，以及开始结束之间的字段。
       const loc = getSelection(
         context,
+        //返回新的字符串坐标的，将原先的坐标加上@前面的字符串。
+        //取start与startOffset之间的字符串，更新start坐标。
         getNewPosition(context, start, startOffset),
         getNewPosition(context, start, startOffset + match[2].length)
       )
+      //值为'class'
       let content = match[2]
       let isStatic = true
 
@@ -556,7 +578,6 @@ function parseAttribute(
             ErrorCodes.X_MISSING_DYNAMIC_DIRECTIVE_ARGUMENT_END
           )
         }
-
         content = content.substr(1, content.length - 2)
       }
 
@@ -609,9 +630,12 @@ function parseAttribute(
     loc
   }
 }
+//说说这个函数干了个啥
+//判断是否为引号，是则取出引号中间的值，生成对象，剪切引号中间的值包括引号，更新坐标。
+//如不是引号，但为连续的字符，则取字符，返回对象，更新坐标
 
 function parseAttributeValue(
-  context: ParserContext
+  context: ParserContext //返回值
 ):
   | {
       content: string
@@ -619,15 +643,19 @@ function parseAttributeValue(
       loc: SourceLocation
     }
   | undefined {
+  //取字符串坐标
   const start = getCursor(context)
   let content: string
-
+  //取第一个字符串。
   const quote = context.source[0]
+  // 为true则为引号。
   const isQuoted = quote === `"` || quote === `'`
+  //引号则
   if (isQuoted) {
     // Quoted value.
+    //原字符剪切左引号，更新坐标。
     advanceBy(context, 1)
-
+    //取右引号。
     const endIndex = context.source.indexOf(quote)
     if (endIndex === -1) {
       content = parseTextData(
@@ -637,6 +665,7 @@ function parseAttributeValue(
       )
     } else {
       content = parseTextData(context, endIndex, TextModes.ATTRIBUTE_VALUE)
+      //移出引号
       advanceBy(context, 1)
     }
   } else {
@@ -656,23 +685,23 @@ function parseAttributeValue(
     }
     content = parseTextData(context, match[0].length, TextModes.ATTRIBUTE_VALUE)
   }
-
+  //返回值包括左右引号。
   return { content, isQuoted, loc: getSelection(context, start) }
 }
-
+//解析差值 "{{}}"
 function parseInterpolation(
   context: ParserContext,
   mode: TextModes
 ): InterpolationNode | undefined {
   const [open, close] = context.options.delimiters
   __DEV__ && assert(startsWith(context.source, open))
-
+  //为查找的位置
   const closeIndex = context.source.indexOf(close, open.length)
   if (closeIndex === -1) {
     emitError(context, ErrorCodes.X_MISSING_INTERPOLATION_END)
     return undefined
   }
-
+  //context的初始坐标
   const start = getCursor(context)
   advanceBy(context, open.length)
   const innerStart = getCursor(context)
@@ -731,6 +760,12 @@ function parseText(context: ParserContext, mode: TextModes): TextNode {
  * Get text data with a given length from the current location.
  * This translates HTML entities in the text data.
  */
+/**
+ * 如果引号之间不存在/&(?:#x?)?/且引号之间有值，则返回引号之间的值。
+ * 若引号之间存在/&(?:#x?)?/，则读取转字符，尝试转义，转义成功复制text，继续循环。
+ * 不成功将原值赋值给text，继续循环，直至引号的位置。
+ *
+ */
 function parseTextData(
   context: ParserContext,
   length: number, //length指的是第二引号的值的索引
@@ -743,13 +778,16 @@ function parseTextData(
   }
 
   // DATA or RCDATA. Entity decoding required.
+  //到引号前的那个位置。
   const end = context.offset + length
   let text: string = ''
   //length的值为,如 class ="llll",中第二个引号的位置。
+  //若length大于0，则
   while (context.offset < end) {
-    //本质上匹配& ，(?:#x?)为可选项。
+    //匹配&或者&#x（可选项）
     const head = /&(?:#x?)?/i.exec(context.source)
-    //取到双引号之间的值
+    //text,取到双引号之间的值
+    //若无& 或 &位置在引号之外，则text为 "" 之间的值，跳出循环
     if (!head || context.offset + head.index >= end) {
       const remaining = end - context.offset
       text += context.source.slice(0, remaining)
@@ -757,34 +795,45 @@ function parseTextData(
       advanceBy(context, remaining)
       break
     }
-
-    // Advance to the "&".
+    //假设 context.source 为 "*****&****"
+    // Advance to the "&".移动到"&"这个位置.
+    //head.index 为"&"第一次出现的位置。
     text += context.source.slice(0, head.index)
     advanceBy(context, head.index)
-
+    //假设 context.source 为 "&****"
+    //如果第一个值是'&',则
     if (head[0] === '&') {
       // Named character reference.
       let name = '',
         value: string | undefined = undefined
+      //先假设context.source[0]为&
       if (/[0-9a-z]/i.test(context.source[1])) {
+        //这个for循环就是找到转义字符对应的字符。这么简单但是晕啥。
+        // for循环以length值逐步减小，取转义字符对应的值，赋为value。
         for (
           let length = context.maxCRNameLength;
           !value && length > 0;
           --length
         ) {
+          //name 拿的是转义字符,也是&到引号之间的字符串。
           name = context.source.substr(1, length)
           value = context.options.namedCharacterReferences[name]
         }
+        //假设 context.source 为 "&****"
         if (value) {
           const semi = name.endsWith(';')
+          // 当context.source[1 + name.length] 值为 [=a-z0-9]
           if (
             mode === TextModes.ATTRIBUTE_VALUE &&
             !semi &&
+            //判断name最后一个字符串的值
             /[=a-z0-9]/i.test(context.source[1 + name.length] || '')
           ) {
+            //text 值为 *****
             text += '&'
-            text += name
-            advanceBy(context, 1 + name.length)
+            text += name // text 值为 *****&***
+            //context 中的字符剪去转义字符。
+            advanceBy(context, 1 + name.length) //context.source值为**...
           } else {
             text += value
             advanceBy(context, 1 + name.length)
@@ -817,7 +866,10 @@ function parseTextData(
           ErrorCodes.ABSENCE_OF_DIGITS_IN_NUMERIC_CHARACTER_REFERENCE
         )
         advanceBy(context, head[0].length)
-      } else {
+      }
+      //这部分内容暂时不看
+      else {
+        //看下面的这个链接，暂不花费时间。
         // https://html.spec.whatwg.org/multipage/parsing.html#numeric-character-reference-end-state
         let cp = Number.parseInt(body[1], hex ? 16 : 10)
         if (cp === 0) {
@@ -871,6 +923,7 @@ function getSelection(
   return {
     start,
     end,
+    //从原始字符串中取出特性的部分
     source: context.originalSource.slice(start.offset, end.offset)
   }
 }
@@ -886,6 +939,7 @@ function startsWith(source: string, searchString: string): boolean {
 function advanceBy(context: ParserContext, numberOfCharacters: number): void {
   const { source } = context
   __DEV__ && assert(numberOfCharacters <= source.length)
+  //更新行列以及行
   advancePositionWithMutation(context, source, numberOfCharacters)
   context.source = source.slice(numberOfCharacters)
 }
@@ -904,6 +958,7 @@ function getNewPosition(
 ): Position {
   return advancePositionWithClone(
     start,
+    //这里可能有坑
     context.originalSource.slice(start.offset, numberOfCharacters),
     numberOfCharacters
   )
@@ -930,8 +985,8 @@ function emitError(
 
 function isEnd(
   context: ParserContext,
-  mode: TextModes, //初始时传入的值为1
-  ancestors: ElementNode[]
+  mode: TextModes, //初始时传入的值为0
+  ancestors: ElementNode[] //初始化是传入的是空数组
 ): boolean {
   //初始传入的字符串
   const s = context.source
@@ -969,6 +1024,7 @@ function isEnd(
 }
 
 function startsWithEndTagOpen(source: string, tag: string): boolean {
+  //判断是否以'</'开始，判断tag是否相等，判断tag最后一项是否为/[\t\n\f />]/
   // \n:换行符、\t制表符、\f换页符
   return (
     startsWith(source, '</') &&
